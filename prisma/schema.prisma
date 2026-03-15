@@ -1,0 +1,402 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-arm64-openssl-3.0.x", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Usuários do sistema
+model User {
+  id        String   @id @default(cuid())
+  username  String   @unique
+  name      String
+  password  String
+  role      UserRole @default(CAIXA)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Relações
+  sales         Sale[]
+  stockLogs     StockLog[]
+  discountLogs  DiscountLog[]
+  cancellationLogs CancellationLog[]
+
+  @@map("users")
+}
+
+enum UserRole {
+  CAIXA
+  GERENTE
+  ADMIN
+}
+
+// Categorias de produtos
+model Category {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  products Product[]
+
+  @@map("categories")
+}
+
+// Produtos
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  categoryId  String
+  price       Decimal  @db.Decimal(10, 2)
+  cost        Decimal  @db.Decimal(10, 2)
+  barcode     String?  @unique
+  sku         String?  @unique
+  active      Boolean  @default(true)
+  lowStockAlert Int    @default(5)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  category   Category     @relation(fields: [categoryId], references: [id])
+  variations ProductVariation[]
+  salesItems SaleItem[]
+  stockLogs   StockLog[]
+
+  @@map("products")
+}
+
+// Variações de produto (Cor + Tamanho)
+model ProductVariation {
+  id        String   @id @default(cuid())
+  productId String
+  color     String
+  size      String
+  quantity  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
+  stockLogs StockLog[]
+  saleItems SaleItem[]
+
+  @@unique([productId, color, size])
+  @@map("product_variations")
+}
+
+// Clientes
+model Customer {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  observations String? @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  sales                Sale[]
+  accountsReceivable   AccountsReceivable[]
+
+  @@map("customers")
+}
+
+// Vendas
+model Sale {
+  id            String        @id @default(cuid())
+  customerId    String?
+  userId        String
+  subtotal      Decimal       @db.Decimal(10, 2)
+  discount      Decimal       @default(0) @db.Decimal(10, 2)
+  total         Decimal       @db.Decimal(10, 2)
+  paymentMethod PaymentMethod
+  cancelled     Boolean       @default(false)
+  cancelledAt   DateTime?
+  cancelledBy   String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  customer           Customer?           @relation(fields: [customerId], references: [id])
+  user               User                @relation(fields: [userId], references: [id])
+  items              SaleItem[]
+  installments       SaleInstallment[]
+  payments           SalePayment[]
+  discountLogs       DiscountLog[]
+  cancellationLogs   CancellationLog[]
+  accountsReceivable AccountsReceivable[]
+
+  @@map("sales")
+}
+
+enum PaymentMethod {
+  DINHEIRO
+  PIX
+  CREDITO
+  CREDITO_AVISTA
+  CREDITO_PARCELADO
+  DEBITO
+  MISTO
+}
+
+// Itens da venda
+model SaleItem {
+  id                String   @id @default(cuid())
+  saleId            String
+  productId         String
+  variationId       String
+  quantity          Int
+  unitPrice         Decimal  @db.Decimal(10, 2)
+  totalPrice        Decimal  @db.Decimal(10, 2)
+  createdAt         DateTime @default(now())
+
+  sale       Sale             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product    Product          @relation(fields: [productId], references: [id])
+  variation  ProductVariation @relation(fields: [variationId], references: [id])
+
+  @@map("sale_items")
+}
+
+// Movimentações de estoque
+model StockLog {
+  id          String      @id @default(cuid())
+  productId   String
+  variationId String
+  userId      String
+  type        StockType
+  quantity    Int
+  reason      String?
+  createdAt   DateTime    @default(now())
+
+  product   Product          @relation(fields: [productId], references: [id])
+  variation ProductVariation @relation(fields: [variationId], references: [id])
+  user      User             @relation(fields: [userId], references: [id])
+
+  @@map("stock_logs")
+}
+
+enum StockType {
+  ENTRADA_COMPRA
+  ENTRADA_AJUSTE
+  ENTRADA_DEVOLUCAO
+  SAIDA_VENDA
+  SAIDA_AJUSTE
+  SAIDA_PERDA
+}
+
+// Log de descontos aplicados
+model DiscountLog {
+  id          String   @id @default(cuid())
+  saleId      String
+  userId      String
+  discountType DiscountType
+  value       Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("discount_logs")
+}
+
+enum DiscountType {
+  PERCENTUAL
+  VALOR_FIXO
+}
+
+// Log de cancelamentos
+model CancellationLog {
+  id        String   @id @default(cuid())
+  saleId    String
+  userId    String
+  reason    String?  @db.Text
+  createdAt DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("cancellation_logs")
+}
+
+// Movimentações financeiras
+model FinancialTransaction {
+  id                  String              @id @default(cuid())
+  type                FinancialType
+  category            String
+  description         String
+  amount              Decimal             @db.Decimal(10, 2)
+  date                DateTime            @default(now())
+  createdAt           DateTime            @default(now())
+  updatedAt           DateTime            @updatedAt
+  accountPayableId    String?
+  accountReceivableId String?
+
+  accountPayable    AccountsPayable?    @relation(fields: [accountPayableId], references: [id])
+  accountReceivable AccountsReceivable? @relation(fields: [accountReceivableId], references: [id])
+
+  @@map("financial_transactions")
+}
+
+enum FinancialType {
+  ENTRADA
+  SAIDA
+}
+
+// Parcelas de venda (crédito parcelado)
+model SaleInstallment {
+  id            String   @id @default(cuid())
+  saleId        String
+  installmentNumber Int
+  amount        Decimal  @db.Decimal(10, 2)
+  dueDate       DateTime
+  paid          Boolean  @default(false)
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@map("sale_installments")
+}
+
+// Métodos de pagamento detalhados (para pagamento misto)
+model SalePayment {
+  id            String        @id @default(cuid())
+  saleId        String
+  paymentMethod PaymentMethod
+  amount        Decimal       @db.Decimal(10, 2)
+  installments  Int?          // Número de parcelas (se for crédito parcelado)
+  cardFee       Decimal?      @db.Decimal(10, 2) // Taxa de cartão para este método
+  createdAt     DateTime      @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@map("sale_payments")
+}
+
+// Fornecedores
+model Supplier {
+  id          String   @id @default(cuid())
+  name        String
+  phone       String?
+  email       String?
+  cnpj        String?
+  address     String?  @db.Text
+  observations String? @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  accountsPayable AccountsPayable[]
+
+  @@map("suppliers")
+}
+
+// Contas a Pagar
+model AccountsPayable {
+  id          String   @id @default(cuid())
+  description String
+  supplierId   String?
+  supplier    Supplier? @relation(fields: [supplierId], references: [id])
+  amount      Decimal  @db.Decimal(10, 2)
+  dueDate     DateTime
+  paid        Boolean  @default(false)
+  paidAt      DateTime?
+  paidAmount  Decimal  @default(0) @db.Decimal(10, 2)
+  category    String
+  observations String? @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  paymentTransactions FinancialTransaction[]
+
+  @@map("accounts_payable")
+}
+
+// Contas a Receber
+model AccountsReceivable {
+  id          String   @id @default(cuid())
+  description String
+  customerId  String?
+  saleId      String?
+  amount      Decimal  @db.Decimal(10, 2)
+  dueDate     DateTime
+  received    Boolean  @default(false)
+  receivedAt  DateTime?
+  receivedAmount Decimal @default(0) @db.Decimal(10, 2)
+  category    String
+  observations String? @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  customer Customer? @relation(fields: [customerId], references: [id])
+  sale     Sale?    @relation(fields: [saleId], references: [id], onDelete: SetNull)
+
+  paymentTransactions FinancialTransaction[]
+
+  @@map("accounts_receivable")
+}
+
+// Despesas Fixas
+model FixedExpense {
+  id          String   @id @default(cuid())
+  description String
+  amount      Decimal  @db.Decimal(10, 2)
+  category    String
+  dayOfMonth  Int      // Dia do mês que a despesa vence (1-31)
+  active      Boolean  @default(true)
+  observations String? @db.Text
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("fixed_expenses")
+}
+
+// Configurações de Taxa de Cartão
+model CardFeeConfig {
+  id              String   @id @default(cuid())
+  paymentMethod   PaymentMethod
+  feeType         CardFeeType
+  feeValue        Decimal  @db.Decimal(10, 4) // Percentual ou valor fixo
+  installments    Int?     // Número de parcelas (null = à vista)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([paymentMethod, installments])
+  @@map("card_fee_configs")
+}
+
+enum CardFeeType {
+  PERCENTUAL
+  VALOR_FIXO
+}
+
+// Notificações
+model Notification {
+  id          String   @id @default(cuid())
+  type        NotificationType
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  readAt      DateTime?
+  relatedId   String?  // ID relacionado (conta a pagar, receber, etc)
+  createdAt   DateTime @default(now())
+
+  @@map("notifications")
+}
+
+enum NotificationType {
+  ACCOUNT_PAYABLE_DUE
+  ACCOUNT_PAYABLE_DUE_SOON
+  ACCOUNT_RECEIVABLE_DUE
+  ACCOUNT_RECEIVABLE_DUE_SOON
+  FIXED_EXPENSE_DUE
+  FIXED_EXPENSE_DUE_SOON
+  LOW_STOCK
+  SALE_CANCELLED
+}

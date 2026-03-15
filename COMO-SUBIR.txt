@@ -1,0 +1,175 @@
+================================================================================
+  ERP ESPAÇO MULHER - COMO SUBIR EM OUTRA MÁQUINA (SÓ DOCKER)
+================================================================================
+
+PASSO 1 - COPIAR A PASTA
+------------------------
+  Copie esta pasta INTEIRA para o pendrive/HD da outra máquina.
+  Não precisa copiar node_modules nem .next (se existirem, o Docker refaz).
+
+
+PASSO 2 - INSTALAR DOCKER NA OUTRA MÁQUINA
+-----------------------------------------
+  Windows:
+    - Baixe: https://www.docker.com/products/docker-desktop/
+    - Instale e reinicie se pedir.
+    - Abra o "Docker Desktop" e espere iniciar (ícone da baleia na bandeja).
+
+  Linux (Ubuntu/Debian):
+    - Abra o terminal e rode:
+      curl -fsSL https://get.docker.com -o get-docker.sh
+      sudo sh get-docker.sh
+      sudo usermod -aG docker $USER
+    - Faça logout e login de novo (ou reinicie).
+
+
+PASSO 3 - SUBIR O SISTEMA
+--------------------------
+  Abra o terminal (PowerShell no Windows, ou terminal no Linux) DENTRO desta
+  pasta (onde está o arquivo docker-compose.yml).
+
+  Windows:
+    - Dê dois cliques em:  subir.bat
+    OU no PowerShell:      docker compose up -d --build
+
+  Linux / Mac:
+    - No terminal:         chmod +x subir.sh
+    - Depois:              ./subir.sh
+    OU:                    docker compose up -d --build
+
+  Na primeira vez pode demorar uns 5 a 10 minutos (download de imagens e build).
+  Quando aparecer "Started" ou "Container ... Started", está no ar.
+
+
+PASSO 4 - ACESSAR
+-----------------
+  No navegador da outra máquina:
+    http://localhost:3001
+
+  Se for acessar de outro PC na rede, use o IP da máquina:
+    http://IP_DA_MAQUINA:3001
+  (Ex.: http://192.168.1.100:3001)
+
+  Login padrão:
+    E-mail:  admin@erp.com
+    Senha:   Admin@123456
+
+  Usuário caixa:
+    Login:   caixa
+    Senha:   caixa123
+
+
+================================================================================
+  INICIAR COM O WINDOWS (OPCIONAL)
+================================================================================
+
+  Para os containers subirem sozinhos ao ligar o PC:
+
+  1) No Docker Desktop:
+     - Abra Configurações (ícone engrenagem).
+     - Em "General", marque:
+       [x] Start Docker Desktop when you sign in
+     - Apply & Restart.
+
+  2) Nesta pasta, dê dois cliques em:
+     configurar-inicio-automatico.bat
+
+  3) Confirme com S. Será criado um atalho na pasta "Inicializar" do
+     Windows. Ao fazer login, o script espera o Docker ficar pronto e
+     sobe os containers (janela minimizada).
+
+  Para desativar:
+     - Win+R, digite:  shell:startup
+     - Apague o atalho "ERP-Espaco-Mulher-Iniciar".
+
+
+================================================================================
+  O QUE PODE DAR ERRO E COMO RESOLVER
+================================================================================
+
+1) "Port 3001 is already in use" ou "porta já está em uso"
+   - Outro programa está usando a porta 3001.
+   - Solução: feche o outro programa ou mude a porta no docker-compose.yml:
+     Em "ports:" do serviço app, troque "3001:3000" para "3003:3000" (e acesse
+     http://localhost:3003).
+
+2) "Port 5433 is already in use"
+   - Outro PostgreSQL ou outro container está na 5433.
+   - Solução: no docker-compose.yml, em "ports:" do serviço db, troque
+     "5433:5432" para "5435:5432".
+
+3) "Cannot connect to the Docker daemon"
+   - O Docker não está rodando.
+   - Solução (Windows): abra o "Docker Desktop" e espere iniciar.
+   - Solução (Linux): sudo systemctl start docker
+
+4) "docker compose: command not found"
+   - Docker Compose não está instalado ou o comando é outro.
+   - Solução: use "docker-compose" (com hífen) em vez de "docker compose".
+     Ou instale Docker Desktop (já traz o Compose).
+
+5) Erro no build "npm install failed" ou "network"
+   - Falha de internet ou firewall durante o build.
+   - Solução: verifique a internet e rode de novo: docker compose up -d --build
+     O build tenta de novo sozinho em algumas etapas.
+
+6) Página em branco ou "Não foi possível acessar o site"
+   - Os containers podem ainda estar iniciando (banco + app).
+   - Solução: espere 1 a 2 minutos e atualize a página. Se continuar, veja os
+     logs: docker compose logs app
+     Se aparecer "Ready" no final, o app está ok; pode ser firewall ou URL errada.
+
+7) Linux: "Permission denied" ao rodar subir.sh
+   - Solução: chmod +x subir.sh   e depois  ./subir.sh
+
+8) Linux: script docker-entrypoint.sh com erro "bad interpreter" ou \r
+   - Fim de linha Windows (CRLF) no script.
+   - Solução: na máquina onde você editou, salve docker-entrypoint.sh com
+     fim de linha LF (Unix). Ou dentro do container o Dockerfile já tenta
+     remover \r com sed; se ainda falhar, abra docker-entrypoint.sh e salve
+     de novo com "LF" no editor.
+
+9) Início automático: containers não sobem ao ligar o PC
+   - O Docker Desktop precisa iniciar antes do nosso script.
+   - Solução: em Docker Desktop, ative "Start Docker when you sign in".
+     O script espera até 2 minutos pelo Docker; se o PC for lento, pode
+     ser necessário aumentar o tempo em iniciar-com-windows.bat ou rodar
+     subir.bat manualmente uma vez após ligar.
+
+================================================================================
+  ZERAR BANCO APÓS TESTES (INICIAR OPERAÇÃO DO ZERO)
+================================================================================
+
+  Depois de testar na outra máquina, para apagar todos os dados (vendas,
+  produtos, clientes, etc.) e deixar o sistema zerado para a operação real:
+
+  Windows:
+    Dois cliques em:  zerar-banco.bat
+    Confirme com S.
+
+  Linux / Mac:
+    chmod +x zerar-banco.sh
+    ./zerar-banco.sh
+    Confirme com s.
+
+  O que acontece:
+    1. Para os containers e remove o volume do banco (todos os dados são
+       apagados).
+    2. Sobe os containers de novo; o banco é criado vazio e o script de
+       inicialização recria apenas: usuário admin, usuário caixa e
+       categorias padrão (Blusas, Calças, Vestidos, etc.).
+
+  Depois acesse http://localhost:3001 e faça login com admin@erp.com /
+  Admin@123456. O sistema estará zerado para começar a operação.
+
+
+================================================================================
+  PARAR O SISTEMA
+================================================================================
+  Na mesma pasta, no terminal:
+    docker compose down
+
+  Para parar e apagar os dados do banco (começar do zero):
+    docker compose down -v
+
+================================================================================

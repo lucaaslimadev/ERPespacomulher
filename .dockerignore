@@ -1,0 +1,46 @@
+# Dependências e build local (evita copiar para o contexto Docker)
+node_modules
+.next
+.turbo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Git e IDE
+.git
+.gitignore
+.cursor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Testes e cobertura
+coverage
+.nyc_output
+*.lcov
+playwright-report
+test-results
+
+# Ambiente local (não usar secrets do host no build)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.test
+
+# Documentação e misc (opcional, reduz contexto)
+*.md
+!README.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Scripts que não são necessários no container
+scripts/restart-dev.sh
+scripts/setup-completo.sh
+scripts/subir-e-testar.sh
+scripts/garantir-env-local.js
+scripts/test-*.js
