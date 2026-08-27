@@ -1,0 +1,20 @@
+node_modules
+.next
+dist
+coverage
+test-results/
+playwright-report/
+
+# Editor / arquivos gerados
+.vscode/
+out.html
+
+# Backups e pacotes operacionais locais
+backup_*.sql
+deploy_package/
+pacote-producao/
+
+# Ambiente/segredos locais
+.env
+.env.*
+!.env.example

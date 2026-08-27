@@ -1,51 +1,70 @@
+# ERP Espaço Mulher — stack completa no Docker
+#
+# Serviços:
+#   - db     → PostgreSQL (dados)
+#   - app    → Next.js 14: rotas /api (backend) + páginas React (frontend) no mesmo container
+#
+# Sobe tudo:  docker compose up -d --build
+# Só o BD (dev local):  docker compose up -d db
+#
+# O app precisa de DATABASE_URL apontando para o host "db" na rede Docker (abaixo sobrescreve o .env).
+
 services:
   db:
     image: postgres:16-alpine
     container_name: erp-db
-    restart: always
+    restart: unless-stopped
     environment:
-      POSTGRES_USER: erp
-      POSTGRES_PASSWORD: erp_senha_segura
-      POSTGRES_DB: erp_espaco_mulher
-      POSTGRES_HOST_AUTH_METHOD: trust
+      # Padrões alinhados ao .env.example (sobrescreva no .env em produção)
+      POSTGRES_USER: "${POSTGRES_USER:-erp}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-troque-por-uma-senha-forte}"
+      POSTGRES_DB: "${POSTGRES_DB:-erp_espaco_mulher}"
       TZ: America/Sao_Paulo
-      LANG: pt_BR.UTF-8
-      LC_ALL: pt_BR.UTF-8
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-db.sql/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     ports:
-      - "5433:5432"
+      - "${POSTGRES_PUBLISH_PORT:-5433}:5432"
     networks:
-      - default
+      - erp_net
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U erp -d erp_espaco_mulher"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 10s
 
   app:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: erp-espaco-mulher-app:latest
     container_name: erp-app
-    restart: always
+    restart: unless-stopped
     init: true
     depends_on:
       db:
         condition: service_healthy
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: "postgresql://erp:erp_senha_segura@db:5432/erp_espaco_mulher?schema=public&connection_limit=5"
-      JWT_SECRET: "${JWT_SECRET:-altere-em-producao-chave-secreta-jwt}"
-      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@erp.com}"
-      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-Admin@123456}"
+      # Dentro da rede Docker o host é "db" e a porta interna 5432 (não use localhost:5433 aqui)
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-erp}:${POSTGRES_PASSWORD:-troque-por-uma-senha-forte}@db:5432/${POSTGRES_DB:-erp_espaco_mulher}?schema=public"
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      JWT_SECRET: "${JWT_SECRET:?Defina JWT_SECRET no .env}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:?Defina ADMIN_EMAIL no .env}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD no .env}"
       NODE_ENV: production
       HOSTNAME: "0.0.0.0"
       PORT: 3000
       NODE_OPTIONS: "--max-old-space-size=2048"
+      # Porta publicada no host (só para mensagem no log do entrypoint)
+      DOCKER_HOST_APP_PORT: "${APP_PUBLISH_PORT:-3001}"
     ports:
-      - "3001:3000"
+      - "${APP_PUBLISH_PORT:-3001}:3000"
     networks:
-      - default
+      - erp_net
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -53,4 +72,6 @@ volumes:
   postgres_data:
     name: erp_postgres_data
 
-# Rede padrão (não precisa definir nada, o Docker cria automaticamente)
+networks:
+  erp_net:
+    name: erp_network

@@ -35,44 +35,36 @@ async function getDashboardStats(req: NextRequest) {
     const todayCount = todaySales.length
     const todayTicket = todayCount > 0 ? todayTotal / todayCount : 0
 
-    // Vendas de ontem (para comparação)
-    const yesterdaySales = await prisma.sale.findMany({
+    const yesterdaySales = await prisma.sale.aggregate({
       where: {
         createdAt: { gte: yesterday, lt: today },
         cancelled: false,
       },
-      take: MAX_SALES_STATS,
+      _sum: { total: true },
     })
 
-    const yesterdayTotal = yesterdaySales.reduce((sum, sale) => {
-      return sum + parseFloat(sale.total.toString())
-    }, 0)
-
     // Vendas do mês
-    const monthSales = await prisma.sale.findMany({
+    const monthSales = await prisma.sale.aggregate({
       where: {
         createdAt: { gte: thisMonthStart },
         cancelled: false,
       },
-      take: MAX_SALES_STATS,
+      _sum: { total: true },
+      _count: { id: true },
     })
 
-    const monthTotal = monthSales.reduce((sum, sale) => {
-      return sum + parseFloat(sale.total.toString())
-    }, 0)
-
     // Vendas do mês anterior
-    const lastMonthSales = await prisma.sale.findMany({
+    const lastMonthSales = await prisma.sale.aggregate({
       where: {
         createdAt: { gte: lastMonthStart, lt: thisMonthStart },
         cancelled: false,
       },
-      take: MAX_SALES_STATS,
+      _sum: { total: true },
     })
+    const yesterdayTotal = Number(yesterdaySales._sum.total || 0)
+    const monthTotal = Number(monthSales._sum.total || 0)
+    const lastMonthTotal = Number(lastMonthSales._sum.total || 0)
 
-    const lastMonthTotal = lastMonthSales.reduce((sum, sale) => {
-      return sum + parseFloat(sale.total.toString())
-    }, 0)
 
     // Gráfico removido - substituído por painel de notificações
 
@@ -179,7 +171,7 @@ async function getDashboardStats(req: NextRequest) {
       },
       month: {
         total: monthTotal,
-        count: monthSales.length,
+        count: monthSales._count.id,
         change: lastMonthTotal > 0 ? ((monthTotal - lastMonthTotal) / lastMonthTotal) * 100 : 0,
       },
       topProductsToday,
@@ -191,22 +183,15 @@ async function getDashboardStats(req: NextRequest) {
       paymentMethods,
     }
 
-    console.log('[Dashboard Stats] Estatísticas calculadas com sucesso')
     return NextResponse.json(result)
-  } catch (error: any) {
-    console.error('❌ Erro ao buscar estatísticas:', error)
-    console.error('Stack:', error?.stack)
-    console.error('Tipo do erro:', error?.constructor?.name)
-    
-    // Retornar dados vazios em vez de erro para não quebrar o frontend
+  } catch (error: unknown) {
+    const requestId = crypto.randomUUID()
+    console.error(`[Dashboard Stats][${requestId}] Falha ao buscar estatisticas`, error)
+
     return NextResponse.json({
-      today: { total: 0, count: 0, ticket: 0, change: 0 },
-      month: { total: 0, count: 0, change: 0 },
-      topProductsToday: [],
-      stock: { totalProducts: 0, lowStockCount: 0, outOfStockCount: 0 },
-      paymentMethods: { DINHEIRO: 0, PIX: 0, CREDITO_AVISTA: 0, CREDITO_PARCELADO: 0, DEBITO: 0, MISTO: 0 },
-      error: process.env.NODE_ENV === 'development' ? error?.message : undefined,
-    })
+      error: 'Erro ao buscar estatísticas',
+      requestId,
+    }, { status: 500 })
   }
 }
 

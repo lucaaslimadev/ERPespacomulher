@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth, AuthenticatedRequest } from '@/lib/middleware'
+import { UserRole } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { NotificationType } from '@prisma/client'
+import { z } from 'zod'
+
+const markAsReadSchema = z.object({
+  id: z.string().cuid().optional(),
+})
 
 async function getNotifications(req: NextRequest) {
   try {
@@ -30,11 +36,11 @@ async function getNotifications(req: NextRequest) {
     })
 
     return NextResponse.json({ notifications, unreadCount })
-  } catch (error: any) {
-    console.error('❌ Erro ao buscar notificações:', error)
+  } catch (error: unknown) {
+    console.error('Erro ao buscar notificações')
     return NextResponse.json({ 
       error: 'Erro ao buscar notificações',
-      details: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      details: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : undefined
     }, { status: 500 })
   }
 }
@@ -42,7 +48,7 @@ async function getNotifications(req: NextRequest) {
 async function markAsRead(req: AuthenticatedRequest) {
   try {
     const body = await req.json()
-    const { id } = body
+    const { id } = markAsReadSchema.parse(body)
 
     if (id) {
       // Marcar uma notificação específica como lida
@@ -59,14 +65,17 @@ async function markAsRead(req: AuthenticatedRequest) {
     }
 
     return NextResponse.json({ message: 'Notificação marcada como lida' })
-  } catch (error: any) {
-    console.error('❌ Erro ao marcar notificação como lida:', error)
+  } catch (error: unknown) {
+    if (error instanceof z.ZodError) {
+      return NextResponse.json({ error: 'ID de notificação inválido' }, { status: 400 })
+    }
+    console.error('Erro ao marcar notificação como lida')
     return NextResponse.json({ 
       error: 'Erro ao marcar notificação como lida',
-      details: process.env.NODE_ENV === 'development' ? error?.message : undefined
+      details: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : undefined
     }, { status: 500 })
   }
 }
 
-export const GET = withAuth(getNotifications)
-export const POST = withAuth(markAsRead)
+export const GET = withAuth(getNotifications, UserRole.GERENTE)
+export const POST = withAuth(markAsRead, UserRole.GERENTE)

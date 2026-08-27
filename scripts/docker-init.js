@@ -8,15 +8,21 @@ const bcrypt = require('bcryptjs')
 
 const prisma = new PrismaClient()
 
-const ADMIN_USERNAME = (process.env.ADMIN_EMAIL || process.env.ADMIN_USERNAME || 'admin').trim()
-const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || 'admin123').trim()
+const ADMIN_USERNAME = (process.env.ADMIN_EMAIL || process.env.ADMIN_USERNAME || '').trim()
+const ADMIN_PASSWORD = (process.env.ADMIN_PASSWORD || '').trim()
+const CAIXA_USERNAME = (process.env.CAIXA_USERNAME || '').trim()
+const CAIXA_PASSWORD = (process.env.CAIXA_PASSWORD || '').trim()
 
 async function hashPassword(password) {
   return bcrypt.hash(password, 10)
 }
 
 async function main() {
-  console.log('🚀 Inicializando banco de dados (Docker)...')
+  if (!ADMIN_USERNAME || !ADMIN_PASSWORD) {
+    throw new Error('ADMIN_EMAIL/ADMIN_USERNAME e ADMIN_PASSWORD são obrigatórios para inicialização')
+  }
+
+  console.log('Inicializando banco de dados (Docker)...')
 
   // 1. Categorias
   const categories = [
@@ -33,7 +39,7 @@ async function main() {
       create: cat,
     })
   }
-  console.log('✅ Categorias criadas')
+  console.log('Categorias criadas')
 
   // 2. Usuário ADMIN (usa ADMIN_EMAIL/ADMIN_PASSWORD do ambiente)
   const adminPassword = await hashPassword(ADMIN_PASSWORD)
@@ -47,21 +53,23 @@ async function main() {
       role: 'ADMIN',
     },
   })
-  console.log(`✅ Usuário admin criado (login: ${ADMIN_USERNAME})`)
+  console.log(`Usuário admin criado (login: ${ADMIN_USERNAME})`)
 
-  // 3. Usuário caixa
-  const caixaPassword = await hashPassword('caixa123')
-  await prisma.user.upsert({
-    where: { username: 'caixa' },
-    update: {},
-    create: {
-      username: 'caixa',
-      name: 'Caixa',
-      password: caixaPassword,
-      role: 'CAIXA',
-    },
-  })
-  console.log('✅ Usuário caixa criado (login: caixa, senha: caixa123)')
+  // 3. Usuário caixa opcional (somente se credenciais forem informadas explicitamente)
+  if (CAIXA_USERNAME && CAIXA_PASSWORD) {
+    const caixaPassword = await hashPassword(CAIXA_PASSWORD)
+    await prisma.user.upsert({
+      where: { username: CAIXA_USERNAME },
+      update: {},
+      create: {
+        username: CAIXA_USERNAME,
+        name: 'Caixa',
+        password: caixaPassword,
+        role: 'CAIXA',
+      },
+    })
+    console.log(`Usuário caixa criado (login: ${CAIXA_USERNAME})`)
+  }
 
   // 4. Produto de exemplo (opcional)
   const blusa = await prisma.category.findUnique({ where: { name: 'Blusas' } })
@@ -90,16 +98,16 @@ async function main() {
           },
         },
       })
-      console.log('✅ Produto de exemplo criado')
+      console.log('Produto de exemplo criado')
     }
   }
 
-  console.log(`🎉 Inicialização concluída! Acesse com ${ADMIN_USERNAME} / [sua senha]`)
+  console.log(`Inicialização concluída. Acesse com ${ADMIN_USERNAME} / [sua senha]`)
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Erro na inicialização:', e)
+    console.error('Erro na inicialização:', e)
     process.exit(1)
   })
   .finally(async () => {

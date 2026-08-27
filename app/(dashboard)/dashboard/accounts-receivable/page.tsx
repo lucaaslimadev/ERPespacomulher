@@ -17,8 +17,9 @@ export default function AccountsReceivablePage() {
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [filterReceived, setFilterReceived] = useState<string>('all')
-  const [markReceivedTarget, setMarkReceivedTarget] = useState<{ id: string; amount: string } | null>(null)
+  const [markReceivedTarget, setMarkReceivedTarget] = useState<{ id: string; amount: string; pending: number } | null>(null)
   const [markingReceived, setMarkingReceived] = useState(false)
+  const [amountToPay, setAmountToPay] = useState<number>(0)
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [deleting, setDeleting] = useState(false)
 
@@ -55,27 +56,31 @@ export default function AccountsReceivablePage() {
   }
 
   const handleMarkAsReceived = async () => {
-    if (!markReceivedTarget) return
+    if (!markReceivedTarget || amountToPay <= 0) {
+      toast.error('Informe um valor válido maior que zero.')
+      return
+    }
     setMarkingReceived(true)
     try {
       const response = await apiFetch(`/api/accounts-receivable/${markReceivedTarget.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ received: true, receivedAmount: parseFloat(markReceivedTarget.amount) }),
+        body: JSON.stringify({ received: true, receivedAmount: amountToPay }),
       })
 
       if (!response.ok) {
         const data = await response.json()
-        toast.error(data.error || 'Erro ao marcar como recebida')
+        toast.error(data.error || 'Erro ao registrar recebimento')
         return
       }
 
       setMarkReceivedTarget(null)
+      setAmountToPay(0)
       loadAccounts()
-      toast.success('Conta marcada como recebida.')
+      toast.success('Recebimento registrado com sucesso.')
     } catch (error) {
-      console.error('Erro ao marcar como recebida:', error)
-      toast.error('Erro ao marcar como recebida')
+      console.error('Erro ao registrar recebimento:', error)
+      toast.error('Erro ao registrar recebimento')
     } finally {
       setMarkingReceived(false)
     }
@@ -111,8 +116,8 @@ export default function AccountsReceivablePage() {
     <div className="p-6 max-w-7xl mx-auto">
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Contas a Receber</h1>
-          <p className="text-gray-600 mt-1">Gerenciamento de contas a receber</p>
+          <h1 className="text-3xl font-bold text-gray-900">Crediário</h1>
+          <p className="text-gray-600 mt-1">Gerenciamento de crediário e pendências</p>
         </div>
         <Button onClick={() => setShowModal(true)}>
           <Plus className="w-4 h-4 mr-2" />
@@ -187,7 +192,7 @@ export default function AccountsReceivablePage() {
 
       {/* Lista de Contas */}
       <Card>
-        <h2 className="text-xl font-bold mb-4">Contas a Receber</h2>
+        <h2 className="text-xl font-bold mb-4">Lançamentos do Crediário</h2>
         {loading ? (
           <p className="text-center py-8 text-gray-500">Carregando...</p>
         ) : accounts.length === 0 ? (
@@ -199,69 +204,86 @@ export default function AccountsReceivablePage() {
                 <tr className="border-b">
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Descrição</th>
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Cliente</th>
-                  <th className="text-left p-3 text-sm font-medium text-gray-600">Categoria</th>
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Vencimento</th>
-                  <th className="text-right p-3 text-sm font-medium text-gray-600">Valor</th>
+                  <th className="text-right p-3 text-sm font-medium text-gray-600">Total</th>
+                  <th className="text-right p-3 text-sm font-medium text-gray-600">Pago</th>
+                  <th className="text-right p-3 text-sm font-medium text-gray-600">Pendente</th>
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Status</th>
                   <th className="text-center p-3 text-sm font-medium text-gray-600">Ações</th>
                 </tr>
               </thead>
               <tbody>
                 {accounts.map((account) => {
-                  const isOverdue = !account.received && new Date(account.dueDate) < new Date()
-                  const isDueSoon = !account.received && new Date(account.dueDate) <= new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
-                  
-                  return (
-                    <tr key={account.id} className={`border-b hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-yellow-50' : ''}`}>
-                      <td className="p-3 text-sm font-medium">{account.description}</td>
-                      <td className="p-3 text-sm">{account.customer?.name || '-'}</td>
-                      <td className="p-3 text-sm">{account.category}</td>
-                      <td className="p-3 text-sm">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4 text-gray-400" />
-                          {formatDate(account.dueDate)}
-                          {isOverdue && (
-                            <span title="Vencida"><AlertCircle className="w-4 h-4 text-red-600" aria-hidden /></span>
+                    const total = parseFloat(account.amount.toString())
+                    const pago = parseFloat(account.receivedAmount?.toString() || '0')
+                    const pendente = Math.max(0, total - pago)
+                    const isOverdue = !account.received && new Date(account.dueDate) < new Date()
+                    const isDueSoon = !account.received && new Date(account.dueDate) <= new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+                    const isPartial = !account.received && pago > 0
+
+                    return (
+                      <tr key={account.id} className={`border-b hover:bg-gray-50 ${isOverdue ? 'bg-red-50' : isDueSoon ? 'bg-yellow-50' : ''}`}>
+                        <td className="p-3 text-sm font-medium">{account.description}</td>
+                        <td className="p-3 text-sm">{account.customer?.name || '-'}</td>
+                        <td className="p-3 text-sm">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-gray-400" />
+                            {formatDate(account.dueDate)}
+                            {isOverdue && (
+                              <span title="Vencida"><AlertCircle className="w-4 h-4 text-red-600" aria-hidden /></span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="p-3 text-sm text-right font-medium">
+                          {formatCurrency(total)}
+                        </td>
+                        <td className="p-3 text-sm text-right font-medium text-green-700">
+                          {pago > 0 ? formatCurrency(pago) : '-'}
+                        </td>
+                        <td className="p-3 text-sm text-right font-medium text-orange-700">
+                          {account.received ? <span className="text-green-600">-</span> : formatCurrency(pendente)}
+                        </td>
+                        <td className="p-3">
+                          {account.received ? (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                              Quitado
+                            </span>
+                          ) : isPartial ? (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                              Parcial
+                            </span>
+                          ) : (
+                            <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                              Pendente
+                            </span>
                           )}
-                        </div>
-                      </td>
-                      <td className="p-3 text-sm text-right font-medium">
-                        {formatCurrency(parseFloat(account.amount.toString()))}
-                      </td>
-                      <td className="p-3">
-                        {account.received ? (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
-                            Recebida
-                          </span>
-                        ) : (
-                          <span className="px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
-                            Pendente
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-3 text-center">
-                        <div className="flex items-center justify-center gap-2">
-                          {!account.received && (
+                        </td>
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            {!account.received && (
+                              <button
+                                onClick={() => {
+                                  setMarkReceivedTarget({ id: account.id, amount: account.amount.toString(), pending: pendente })
+                                  setAmountToPay(pendente)
+                                }}
+                                className="p-1 text-green-600 hover:text-green-800"
+                                title="Registrar Pagamento"
+                              >
+                                <Check className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
-                              onClick={() => setMarkReceivedTarget({ id: account.id, amount: account.amount.toString() })}
-                              className="p-1 text-green-600 hover:text-green-800"
-                              title="Marcar como recebida"
+                              onClick={() => setDeleteTargetId(account.id)}
+                              className="p-1 text-red-600 hover:text-red-800"
+                              title="Excluir"
                             >
-                              <Check className="w-4 h-4" />
+                              <Trash2 className="w-4 h-4" />
                             </button>
-                          )}
-                          <button
-                            onClick={() => setDeleteTargetId(account.id)}
-                            className="p-1 text-red-600 hover:text-red-800"
-                            title="Excluir"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
               </tbody>
             </table>
           </div>
@@ -277,23 +299,45 @@ export default function AccountsReceivablePage() {
         />
       )}
 
-      <ConfirmModal
-        open={markReceivedTarget !== null}
-        onClose={() => setMarkReceivedTarget(null)}
-        title="Marcar como recebida"
-        message="Marcar esta conta como recebida?"
-        confirmLabel="Sim, marcar"
-        cancelLabel="Cancelar"
-        variant="primary"
-        loading={markingReceived}
-        onConfirm={handleMarkAsReceived}
-      />
+      {/* Modal de Pagamento Parcial */}
+      {markReceivedTarget !== null && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full">
+            <h2 className="text-xl font-bold mb-4">Registrar Pagamento</h2>
+            <div className="space-y-4">
+              <p className="text-sm text-gray-600">
+                Valor total restante: <strong>{formatCurrency(markReceivedTarget.pending)}</strong>
+              </p>
+              <Input
+                label="Valor sendo pago agora (R$)"
+                type="number"
+                step="0.01"
+                max={markReceivedTarget.pending}
+                value={amountToPay || ''}
+                onChange={(e) => setAmountToPay(parseFloat(e.target.value) || 0)}
+              />
+              <div className="flex gap-2 pt-4">
+                <Button 
+                  onClick={handleMarkAsReceived} 
+                  disabled={markingReceived} 
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  {markingReceived ? 'Processando...' : 'Confirmar Pagamento'}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setMarkReceivedTarget(null)} className="flex-1">
+                  Cancelar
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         open={deleteTargetId !== null}
         onClose={() => setDeleteTargetId(null)}
-        title="Excluir conta a receber"
-        message="Tem certeza que deseja excluir esta conta a receber? Esta ação não pode ser desfeita."
+        title="Excluir lançamento"
+        message="Tem certeza que deseja excluir esta pendência do crediário? Esta ação não pode ser desfeita."
         confirmLabel="Excluir"
         cancelLabel="Cancelar"
         variant="danger"
@@ -362,7 +406,7 @@ function AccountReceivableModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-lg p-6 max-w-md w-full">
-        <h2 className="text-2xl font-bold mb-4">Nova Conta a Receber</h2>
+        <h2 className="text-2xl font-bold mb-4">Novo Lançamento no Crediário</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <Input

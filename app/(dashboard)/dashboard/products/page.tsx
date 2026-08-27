@@ -339,6 +339,7 @@ function ProductModal({ product, onClose, onSave }: any) {
               id: variation.id,
               color: variation.color,
               size: variation.size,
+              barcode: variation.barcode || null,
               quantity: variation.quantity,
             }),
           })
@@ -360,6 +361,7 @@ function ProductModal({ product, onClose, onSave }: any) {
             body: JSON.stringify({
               color: variation.color,
               size: variation.size,
+              barcode: variation.barcode || null,
               quantity: variation.quantity,
             }),
           })
@@ -423,28 +425,57 @@ function ProductModal({ product, onClose, onSave }: any) {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-
-            <div className="grid grid-cols-2 gap-2">
-              <Input
-                label="Preço de Venda *"
-                type="number"
-                step="0.01"
-                value={formData.price || ''}
-                onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
-                placeholder="0,00"
-                required
-              />
-              <Input
-                label="Custo *"
-                type="number"
-                step="0.01"
-                value={formData.cost || ''}
-                onChange={(e) => setFormData({ ...formData, cost: parseFloat(e.target.value) || 0 })}
-                placeholder="0,00"
-                required
-              />
-            </div>
+            <Input
+              label="Custo *"
+              type="number"
+              step="0.01"
+              value={formData.cost || ''}
+              onChange={(e) => setFormData({ ...formData, cost: parseFloat(e.target.value) || 0 })}
+              placeholder="0,00"
+              required
+            />
+            <Input
+              label="Preço de Venda *"
+              type="number"
+              step="0.01"
+              value={formData.price || ''}
+              onChange={(e) => setFormData({ ...formData, price: parseFloat(e.target.value) || 0 })}
+              placeholder="0,00"
+              required
+            />
           </div>
+
+          {/* Indicador de Margem de Lucro */}
+          {formData.cost > 0 && formData.price > 0 && (
+            <div className="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-lg p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-700">Margem de Lucro</p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Lucro: {formatCurrency(formData.price - formData.cost)} por unidade
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className={`text-3xl font-bold ${
+                    ((formData.price - formData.cost) / formData.cost * 100) >= 30 
+                      ? 'text-green-600' 
+                      : ((formData.price - formData.cost) / formData.cost * 100) >= 15
+                      ? 'text-yellow-600'
+                      : 'text-red-600'
+                  }`}>
+                    {((formData.price - formData.cost) / formData.cost * 100).toFixed(1)}%
+                  </p>
+                  <p className="text-xs text-gray-500 mt-1">
+                    {((formData.price - formData.cost) / formData.cost * 100) >= 30 
+                      ? '✓ Ótima margem' 
+                      : ((formData.price - formData.cost) / formData.cost * 100) >= 15
+                      ? '⚠ Margem razoável'
+                      : '⚠ Margem baixa'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="grid grid-cols-2 gap-4">
             <Input
@@ -478,7 +509,7 @@ function ProductModal({ product, onClose, onSave }: any) {
 
             <div className="space-y-3">
               {variations.map((variation, index) => (
-                <div key={index} className="flex gap-2 items-end">
+                <div key={index} className="grid grid-cols-5 gap-2 items-end">
                   <Input
                     label="Cor"
                     value={variation.color}
@@ -498,6 +529,16 @@ function ProductModal({ product, onClose, onSave }: any) {
                       setVariations(newVariations)
                     }}
                     placeholder="Ex: P"
+                  />
+                  <Input
+                    label="Código de Barras"
+                    value={variation.barcode || ''}
+                    onChange={(e) => {
+                      const newVariations = [...variations]
+                      newVariations[index].barcode = e.target.value
+                      setVariations(newVariations)
+                    }}
+                    placeholder="7891234567890"
                   />
                   <Input
                     label="Quantidade"

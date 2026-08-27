@@ -7,6 +7,7 @@ const variationSchema = z.object({
   id: z.string().optional(),
   color: z.string().min(1, 'Cor é obrigatória'),
   size: z.string().min(1, 'Tamanho é obrigatório'),
+  barcode: z.string().nullable().optional(),
   quantity: z.number().int().nonnegative(),
 })
 
@@ -87,6 +88,7 @@ async function updateVariation(req: AuthenticatedRequest, context: { params: Pro
       data: {
         color: data.color,
         size: data.size,
+        barcode: data.barcode || null,
         quantity: data.quantity,
       },
     })

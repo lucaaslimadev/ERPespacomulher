@@ -14,52 +14,101 @@ async function updateAccountReceivable(req: AuthenticatedRequest, context: { par
     const body = await req.json()
     const { received, receivedAmount } = body
 
-    const account = await prisma.accountsReceivable.findUnique({
-      where: { id: params.id },
-    })
+    const idempotencyKey = req.headers.get('x-idempotency-key')?.trim().slice(0, 64) || null
+    const account = await prisma.accountsReceivable.findUnique({ where: { id: params.id } })
 
     if (!account) {
       return NextResponse.json({ error: 'Conta a receber não encontrada' }, { status: 404 })
     }
 
     const amountNum = parseFloat(account.amount.toString())
-    let receivedAmountToUse = amountNum
+    let amountPaidToUse = 0
+
     if (received === true && receivedAmount != null) {
       const requested = Number(receivedAmount)
       if (!Number.isFinite(requested) || requested <= 0) {
         return NextResponse.json({ error: 'Valor recebido deve ser maior que zero' }, { status: 400 })
       }
-      if (requested > amountNum) {
-        return NextResponse.json({ error: 'Valor recebido não pode ser maior que o valor da conta' }, { status: 400 })
-      }
-      receivedAmountToUse = requested
+      amountPaidToUse = requested
     }
-
-    const receivedAmountStr = receivedAmountToUse.toFixed(2)
 
     if (received !== true && received !== false) {
       return NextResponse.json({ error: 'Informe received (true ou false)' }, { status: 400 })
     }
 
     await prisma.$transaction(async (tx) => {
-      if (received === true) {
+      const current = await tx.accountsReceivable.findUnique({ where: { id: params.id } })
+      if (!current) {
+        throw new Error('Conta a receber não encontrada')
+      }
+
+      const currentTotal = parseFloat(current.receivedAmount.toString())
+      const total = parseFloat(current.amount.toString())
+      const effectiveAmountToUse = received === true
+        ? (amountPaidToUse > 0 ? amountPaidToUse : total - currentTotal)
+        : 0
+
+      if (received === true && (effectiveAmountToUse <= 0 || currentTotal + effectiveAmountToUse > total)) {
+        throw new Error('Valor recebido ultrapassa o total da conta')
+      }
+
+      const newReceivedTotal = currentTotal + effectiveAmountToUse
+      const isFullyPaid = newReceivedTotal >= total
+
+      if (received === true && effectiveAmountToUse > 0) {
+        const idemTag = idempotencyKey ? ` [idempotency:${idempotencyKey}]` : ''
+        const existingTx = await tx.financialTransaction.findFirst({
+          where: {
+            accountReceivableId: current.id,
+            type: FinancialType.ENTRADA,
+            ...(idempotencyKey
+              ? { description: { contains: `[idempotency:${idempotencyKey}]` } }
+              : {}),
+          },
+          select: { id: true },
+        })
+        if (existingTx) {
+          return
+        }
+
         await tx.financialTransaction.create({
           data: {
             type: FinancialType.ENTRADA,
-            category: account.category,
-            description: `Recebimento: ${account.description}`,
-            amount: receivedAmountStr,
+            category: current.category,
+            description: `Recebimento Crediário: ${current.description}${idemTag}`,
+            amount: effectiveAmountToUse.toFixed(2),
             date: new Date(),
-            accountReceivableId: account.id,
+            accountReceivableId: current.id,
           },
         })
+        
+        if (isFullyPaid) {
+          // Remover notificações relacionadas quando marcar como recebida totalmente
+          await tx.notification.deleteMany({
+            where: { relatedId: params.id },
+          })
+        }
       }
+      
       await tx.accountsReceivable.update({
         where: { id: params.id },
         data: received === true
-          ? { received: true, receivedAt: new Date(), receivedAmount: receivedAmountStr }
+          ? { 
+              received: isFullyPaid, 
+              receivedAt: isFullyPaid ? new Date() : current.receivedAt, 
+              receivedAmount: newReceivedTotal.toFixed(2) 
+            }
           : { received: false, receivedAt: null, receivedAmount: '0' },
       })
+
+      if (received === false) {
+        await tx.financialTransaction.deleteMany({
+          where: {
+            accountReceivableId: params.id,
+            type: FinancialType.ENTRADA,
+          },
+        })
+      }
     })
 
     const updatedAccount = await prisma.accountsReceivable.findUnique({
@@ -68,6 +117,12 @@ async function updateAccountReceivable(req: AuthenticatedRequest, context: { par
     })
     return NextResponse.json({ account: updatedAccount })
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'Conta a receber não encontrada') {
+      return NextResponse.json({ error: error.message }, { status: 404 })
+    }
+    if (error instanceof Error && error.message === 'Valor recebido ultrapassa o total da conta') {
+      return NextResponse.json({ error: error.message }, { status: 400 })
+    }
     if (process.env.NODE_ENV === 'development' && error instanceof Error) {
       console.error('Erro ao atualizar conta a receber:', error)
     }
@@ -86,8 +141,16 @@ async function deleteAccountReceivable(req: AuthenticatedRequest, context: { par
       return NextResponse.json({ error: 'Acesso negado' }, { status: 403 })
     }
 
-    await prisma.accountsReceivable.delete({
-      where: { id: params.id },
+    await prisma.$transaction(async (tx) => {
+      // Excluir notificações relacionadas primeiro
+      await tx.notification.deleteMany({
+        where: { relatedId: params.id },
+      })
+
+      // Excluir a conta a receber
+      await tx.accountsReceivable.delete({
+        where: { id: params.id },
+      })
     })
 
     return NextResponse.json({ message: 'Conta a receber excluída com sucesso' })

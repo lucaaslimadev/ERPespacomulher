@@ -18,6 +18,7 @@ async function getAccountsReceivable(req: NextRequest) {
     const startDate = searchParams.get('startDate')
     const endDate = searchParams.get('endDate')
     const received = searchParams.get('received')
+    const includeAging = searchParams.get('includeAging') === 'true'
 
     const where: any = {}
     
@@ -47,7 +48,37 @@ async function getAccountsReceivable(req: NextRequest) {
       orderBy: { dueDate: 'asc' },
     })
 
-    return NextResponse.json({ accounts })
+    if (!includeAging) {
+      return NextResponse.json({ accounts })
+    }
+
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+
+    const agingBuckets = {
+      current: 0,
+      '0-30': 0,
+      '31-60': 0,
+      '61-90': 0,
+      '90+': 0,
+    }
+
+    for (const account of accounts) {
+      const openAmount = Math.max(0, Number(account.amount) - Number(account.receivedAmount))
+      if (openAmount <= 0 || account.received) continue
+
+      const daysOverdue = Math.floor((today.getTime() - new Date(account.dueDate).getTime()) / (24 * 60 * 60 * 1000))
+      if (daysOverdue <= 0) agingBuckets.current += openAmount
+      else if (daysOverdue <= 30) agingBuckets['0-30'] += openAmount
+      else if (daysOverdue <= 60) agingBuckets['31-60'] += openAmount
+      else if (daysOverdue <= 90) agingBuckets['61-90'] += openAmount
+      else agingBuckets['90+'] += openAmount
+    }
+
+    return NextResponse.json({
+      accounts,
+      aging: agingBuckets,
+    })
   } catch (error: any) {
     console.error('❌ Erro ao buscar contas a receber:', error)
     return NextResponse.json({ 

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth } from '@/lib/middleware'
+import { UserRole } from '@/lib/auth'
 import { prisma } from '@/lib/db'
-import { PaymentMethod } from '@prisma/client'
 
 const PAYMENT_LABELS: Record<string, string> = {
   DINHEIRO: 'Dinheiro',
@@ -161,4 +161,4 @@ async function getReportsDashboard(req: NextRequest) {
   }
 }
 
-export const GET = withAuth(getReportsDashboard)
+export const GET = withAuth(getReportsDashboard, UserRole.GERENTE)

@@ -6,7 +6,7 @@
 # -----------------------------------------------------------------------------
 # Stage 1 - Builder
 # -----------------------------------------------------------------------------
-FROM node:20-slim AS builder
+FROM node:22-slim AS builder
 
 # Evitar prompts interativos durante o build
 ENV DEBIAN_FRONTEND=noninteractive
@@ -96,7 +96,7 @@ RUN npm run build
 # -----------------------------------------------------------------------------
 # Stage 2 - Runtime
 # -----------------------------------------------------------------------------
-FROM node:20-slim AS runner
+FROM node:22-slim AS runner
 
 # Evitar prompts interativos
 ENV DEBIAN_FRONTEND=noninteractive
@@ -108,6 +108,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     openssl \
     ca-certificates \
+    postgresql-client \
     curl \
     wget && \
     rm -rf /var/lib/apt/lists/*

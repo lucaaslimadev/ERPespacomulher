@@ -4,11 +4,29 @@ import { prisma } from '@/lib/db'
 import { z } from 'zod'
 import { StockType } from '@prisma/client'
 
+const LOSS_REASONS = [
+  'AVARIA',
+  'FURTO',
+  'VENCIMENTO',
+  'EXTRAVIO',
+  'ERRO_CONTAGEM',
+  'OUTROS',
+] as const
+
 const adjustSchema = z.object({
   variationId: z.string(),
   quantity: z.number().int().positive('Quantidade deve ser maior que zero'),
   type: z.nativeEnum(StockType),
   reason: z.string().optional(),
+  lossReason: z.enum(LOSS_REASONS).optional(),
+}).superRefine((data, ctx) => {
+  if (data.type === StockType.SAIDA_PERDA && !data.lossReason) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Informe lossReason para SAIDA_PERDA',
+      path: ['lossReason'],
+    })
+  }
 })
 
 async function adjustStock(req: AuthenticatedRequest) {
@@ -39,17 +57,20 @@ async function adjustStock(req: AuthenticatedRequest) {
         throw new Error('Variação não encontrada')
       }
 
-      const qty = isEntrada
-        ? variation.quantity + data.quantity
-        : variation.quantity - data.quantity
-
-      if (qty < 0) {
+      const updated = await tx.productVariation.updateMany({
+        where: isEntrada
+          ? { id: data.variationId }
+          : { id: data.variationId, quantity: { gte: data.quantity } },
+        data: {
+          quantity: isEntrada
+            ? { increment: data.quantity }
+            : { decrement: data.quantity },
+        },
+      })
+      if (updated.count === 0) {
         throw new Error('Quantidade insuficiente em estoque')
       }
-      await tx.productVariation.update({
-        where: { id: data.variationId },
-        data: { quantity: qty },
-      })
+
       await tx.stockLog.create({
         data: {
           productId: variation.productId,
@@ -57,10 +78,16 @@ async function adjustStock(req: AuthenticatedRequest) {
           userId: user.userId,
           type: data.type,
           quantity: data.quantity,
-          reason: data.reason || null,
+          reason: data.type === StockType.SAIDA_PERDA
+            ? `PERDA:${data.lossReason}${data.reason ? ` - ${data.reason}` : ''}`
+            : data.reason || null,
         },
       })
-      return qty
+      const current = await tx.productVariation.findUnique({
+        where: { id: data.variationId },
+        select: { quantity: true },
+      })
+      return current?.quantity ?? 0
     })
 
     return NextResponse.json({ 

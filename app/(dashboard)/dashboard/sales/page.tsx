@@ -7,7 +7,9 @@ import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { apiFetch } from '@/lib/api'
-import { Search, Eye, Download, X, RefreshCw } from 'lucide-react'
+import { Search, Eye, Download, X, RefreshCw, Trash2, ArrowLeftRight } from 'lucide-react'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
+import { ReturnModal } from '@/components/ReturnModal'
 
 function formatPaymentMethod(method: string): string {
   const methods: { [key: string]: string } = {
@@ -28,6 +30,15 @@ export default function SalesHistoryPage() {
   const [endDate, setEndDate] = useState('')
   const [search, setSearch] = useState('')
   const [selectedSale, setSelectedSale] = useState<any>(null)
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; saleId: string | null }>({
+    open: false,
+    saleId: null,
+  })
+  const [deleting, setDeleting] = useState(false)
+  const [returnModal, setReturnModal] = useState<{ open: boolean; sale: any | null }>({
+    open: false,
+    sale: null,
+  })
 
   useEffect(() => {
     const today = new Date()
@@ -45,12 +56,14 @@ export default function SalesHistoryPage() {
     }
   }, [startDate, endDate])
 
-  // Atualizar automaticamente a cada 30 segundos
+  // Auto refresh apenas quando nao houver busca ativa e com intervalo maior.
   useEffect(() => {
-    if (startDate && endDate) {
+    if (startDate && endDate && !search.trim()) {
       const interval = setInterval(() => {
-        loadSales()
-      }, 30000) // 30 segundos
+        if (document.visibilityState === 'visible') {
+          loadSales()
+        }
+      }, 120000) // 2 minutos
       return () => clearInterval(interval)
     }
   }, [startDate, endDate, search])
@@ -62,6 +75,7 @@ export default function SalesHistoryPage() {
       if (startDate) params.append('startDate', startDate)
       if (endDate) params.append('endDate', endDate)
       if (search) params.append('search', search)
+      params.append('limit', '200')
       
       const response = await apiFetch(`/api/sales?${params}`)
       if (!response.ok) {
@@ -80,6 +94,32 @@ export default function SalesHistoryPage() {
 
   const handleSearch = () => {
     loadSales()
+  }
+
+  const handleDeleteSale = async () => {
+    if (!deleteModal.saleId) return
+
+    setDeleting(true)
+    try {
+      const response = await apiFetch(`/api/sales/${deleteModal.saleId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        toast.error(data.error || 'Erro ao excluir venda')
+        return
+      }
+
+      toast.success('Venda excluída com sucesso')
+      setDeleteModal({ open: false, saleId: null })
+      loadSales()
+    } catch (error) {
+      console.error('Erro ao excluir venda:', error)
+      toast.error('Erro ao excluir venda')
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const exportToCSV = () => {
@@ -271,13 +311,31 @@ export default function SalesHistoryPage() {
                       )}
                     </td>
                     <td className="p-3 text-center">
-                      <button
-                        onClick={() => setSelectedSale(sale)}
-                        className="p-1 text-primary-600 hover:text-primary-800"
-                        title="Ver detalhes"
-                      >
-                        <Eye className="w-4 h-4" />
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button
+                          onClick={() => setSelectedSale(sale)}
+                          className="p-1 text-primary-600 hover:text-primary-800 hover:bg-primary-50 rounded"
+                          title="Ver detalhes"
+                        >
+                          <Eye className="w-4 h-4" />
+                        </button>
+                        {!sale.cancelled && (
+                          <button
+                            onClick={() => setReturnModal({ open: true, sale })}
+                            className="p-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded"
+                            title="Troca/Devolução"
+                          >
+                            <ArrowLeftRight className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => setDeleteModal({ open: true, saleId: sale.id })}
+                          className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                          title="Excluir venda"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -290,6 +348,29 @@ export default function SalesHistoryPage() {
       {/* Modal de Detalhes */}
       {selectedSale && (
         <SaleDetailModal sale={selectedSale} onClose={() => setSelectedSale(null)} />
+      )}
+
+      <ConfirmModal
+        open={deleteModal.open}
+        onClose={() => setDeleteModal({ open: false, saleId: null })}
+        onConfirm={handleDeleteSale}
+        title="Excluir Venda"
+        message="Tem certeza que deseja excluir esta venda? Esta ação não pode ser desfeita. O estoque será devolvido automaticamente e todas as transações financeiras vinculadas serão removidas."
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={deleting}
+      />
+
+      {/* Modal de Troca/Devolução */}
+      {returnModal.open && returnModal.sale && (
+        <ReturnModal
+          sale={returnModal.sale}
+          onClose={() => setReturnModal({ open: false, sale: null })}
+          onSuccess={() => {
+            setReturnModal({ open: false, sale: null })
+            loadSales()
+          }}
+        />
       )}
     </div>
   )

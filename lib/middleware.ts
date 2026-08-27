@@ -16,10 +16,15 @@ export function withAuth(
 ) {
   return async (req: NextRequest, context?: any) => {
     try {
+      const allowLegacyTokenFallback =
+        process.env.NODE_ENV !== 'production' && process.env.ALLOW_LEGACY_TOKEN_FALLBACK === '1'
+
       const token =
         req.cookies.get(AUTH.TOKEN_COOKIE)?.value ||
-        req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
-        req.cookies.get(AUTH.BEARER_COOKIE)?.value
+        (allowLegacyTokenFallback
+          ? req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
+            req.cookies.get(AUTH.BEARER_COOKIE)?.value
+          : undefined)
 
       if (!token) {
         return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })

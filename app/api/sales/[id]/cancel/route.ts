@@ -22,6 +22,7 @@ async function cancelSale(req: AuthenticatedRequest, context: { params: Promise<
     const body = await req.json()
     const { reason } = cancelSchema.parse(body)
 
+    const idempotencyKey = req.headers.get('x-idempotency-key')?.trim().slice(0, 64) || null
     const sale = await prisma.sale.findUnique({
       where: { id: params.id },
       include: {
@@ -43,6 +44,19 @@ async function cancelSale(req: AuthenticatedRequest, context: { params: Promise<
     }
 
     await prisma.$transaction(async (tx) => {
+      const markCancelled = await tx.sale.updateMany({
+        where: { id: params.id, cancelled: false },
+        data: {
+          cancelled: true,
+          cancelledAt: new Date(),
+          cancelledBy: user.userId,
+        },
+      })
+      if (markCancelled.count === 0) {
+        if (idempotencyKey) return
+        throw new Error('Venda já foi cancelada')
+      }
+
       for (const item of sale.items) {
         await tx.productVariation.update({
           where: { id: item.variationId },
@@ -60,15 +74,6 @@ async function cancelSale(req: AuthenticatedRequest, context: { params: Promise<
         })
       }
 
-      await tx.sale.update({
-        where: { id: params.id },
-        data: {
-          cancelled: true,
-          cancelledAt: new Date(),
-          cancelledBy: user.userId,
-        },
-      })
-
       await tx.cancellationLog.create({
         data: {
           saleId: params.id,
@@ -81,7 +86,7 @@ async function cancelSale(req: AuthenticatedRequest, context: { params: Promise<
         data: {
           type: FinancialType.SAIDA,
           category: 'Cancelamento',
-          description: `Cancelamento da venda #${sale.id}`,
+          description: `Cancelamento da venda #${sale.id}${idempotencyKey ? ` [idempotency:${idempotencyKey}]` : ''}`,
           amount: sale.total.toString(),
           date: new Date(),
         },
@@ -94,6 +99,9 @@ async function cancelSale(req: AuthenticatedRequest, context: { params: Promise<
 
     return NextResponse.json({ message: 'Venda cancelada com sucesso' })
   } catch (error) {
+    if (error instanceof Error && error.message === 'Venda já foi cancelada') {
+      return NextResponse.json({ error: error.message }, { status: 409 })
+    }
     if (error instanceof z.ZodError) {
       const message = error.errors.map(e => e.message).filter(Boolean).join('; ') || 'Dados inválidos'
       return NextResponse.json({ error: message }, { status: 400 })

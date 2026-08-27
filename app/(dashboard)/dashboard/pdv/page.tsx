@@ -424,12 +424,12 @@ body{font-family:'Courier New',Courier,monospace;font-size:12px;padding:5px}
         return
       }
 
-      // F1-F5 para formas de pagamento
+      // F1-F7 para formas de pagamento
       if (e.key.startsWith('F') && !e.shiftKey && !e.ctrlKey && !e.altKey) {
         const fKey = parseInt(e.key.substring(1))
-        if (fKey >= 1 && fKey <= 5) {
+        if (fKey >= 1 && fKey <= 7) {
           e.preventDefault()
-          const methods: PaymentMethod[] = ['DINHEIRO', 'PIX', 'CREDITO_AVISTA', 'CREDITO_PARCELADO', 'DEBITO', 'MISTO']
+          const methods: PaymentMethod[] = ['DINHEIRO', 'PIX', 'CREDITO_AVISTA', 'CREDITO_PARCELADO', 'DEBITO', 'MISTO', 'CREDIARIO']
           if (methods[fKey - 1]) {
             setPaymentMethod(methods[fKey - 1])
           }
@@ -717,7 +717,7 @@ body{font-family:'Courier New',Courier,monospace;font-size:12px;padding:5px}
           <Card>
             <h2 className="text-xl font-bold mb-4">Forma de Pagamento</h2>
             <div className="space-y-2">
-              {(['DINHEIRO', 'PIX', 'CREDITO_AVISTA', 'CREDITO_PARCELADO', 'DEBITO', 'MISTO'] as PaymentMethod[]).map((method) => (
+              {(['DINHEIRO', 'PIX', 'CREDITO_AVISTA', 'CREDITO_PARCELADO', 'DEBITO', 'MISTO', 'CREDIARIO'] as PaymentMethod[]).map((method) => (
                 <button
                   key={method}
                   onClick={() => {
@@ -746,6 +746,7 @@ body{font-family:'Courier New',Courier,monospace;font-size:12px;padding:5px}
                 >
                   {method === 'CREDITO_AVISTA' ? 'CRÉDITO À VISTA' : 
                    method === 'CREDITO_PARCELADO' ? 'CRÉDITO PARCELADO' : 
+                   method === 'CREDIARIO' ? 'CREDIÁRIO' :
                    method}
                 </button>
               ))}
@@ -817,6 +818,7 @@ body{font-family:'Courier New',Courier,monospace;font-size:12px;padding:5px}
                         <div className="text-sm font-medium">
                           {payment.method === 'CREDITO_AVISTA' ? 'Crédito à Vista' :
                            payment.method === 'CREDITO_PARCELADO' ? `Crédito Parcelado (${payment.installments}x)` :
+                           payment.method === 'CREDIARIO' ? 'Crediário' :
                            payment.method}
                         </div>
                       </div>
@@ -865,7 +867,7 @@ body{font-family:'Courier New',Courier,monospace;font-size:12px;padding:5px}
               {loading ? 'Processando...' : 'Finalizar Venda (F9)'}
             </Button>
             <p className="text-xs text-gray-500 text-center">
-              Atalhos: Enter (buscar) | F1-F5 (pagamento) | Ctrl+D (desconto) | Esc (cancelar)
+              Atalhos: Enter (buscar) | F1-F8 (pagamento) | Ctrl+D (desconto) | Esc (cancelar)
             </p>
           </div>
         </div>
@@ -1159,16 +1161,15 @@ function MixedPaymentForm({
         <label className="block text-xs font-medium text-gray-700 mb-1">Método</label>
         <select
           value={method}
-          onChange={(e) => {
-            setMethod(e.target.value as PaymentMethod)
-          }}
-          className="w-full p-2 text-sm border border-gray-300 rounded"
+          onChange={(e) => setMethod(e.target.value as PaymentMethod)}
+          className="w-full p-2 border border-gray-300 rounded-lg"
         >
           <option value="DINHEIRO">Dinheiro</option>
           <option value="PIX">PIX</option>
           <option value="CREDITO_AVISTA">Crédito à Vista</option>
           <option value="CREDITO_PARCELADO">Crédito Parcelado</option>
           <option value="DEBITO">Débito</option>
+          <option value="CREDIARIO">Crediário</option>
         </select>
       </div>
 

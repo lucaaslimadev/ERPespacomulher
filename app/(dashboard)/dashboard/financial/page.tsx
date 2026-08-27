@@ -7,7 +7,8 @@ import { Input } from '@/components/ui/Input'
 import { Card } from '@/components/ui/Card'
 import { formatCurrency, formatDate } from '@/lib/utils'
 import { apiFetch } from '@/lib/api'
-import { Plus, TrendingUp, TrendingDown, DollarSign, RefreshCw, BarChart3, Users, Package } from 'lucide-react'
+import { Plus, TrendingUp, TrendingDown, DollarSign, RefreshCw, BarChart3, Users, Package, Trash2 } from 'lucide-react'
+import { ConfirmModal } from '@/components/ui/ConfirmModal'
 
 export default function FinancialPage() {
   const [transactions, setTransactions] = useState<any[]>([])
@@ -21,6 +22,11 @@ export default function FinancialPage() {
     topCustomers: [],
     topProductsByQuantity: [],
   })
+  const [deleteModal, setDeleteModal] = useState<{ open: boolean; transactionId: string | null }>({
+    open: false,
+    transactionId: null,
+  })
+  const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
     const today = new Date()
@@ -72,6 +78,32 @@ export default function FinancialPage() {
       toast.error('Erro ao carregar dados financeiros')
     } finally {
       setLoading(false)
+    }
+  }
+
+  const handleDeleteTransaction = async () => {
+    if (!deleteModal.transactionId) return
+
+    setDeleting(true)
+    try {
+      const response = await apiFetch(`/api/financial/${deleteModal.transactionId}`, {
+        method: 'DELETE',
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({})) as { error?: string }
+        toast.error(data.error || 'Erro ao excluir transação')
+        return
+      }
+
+      toast.success('Transação excluída com sucesso')
+      setDeleteModal({ open: false, transactionId: null })
+      loadTransactions()
+    } catch (error) {
+      console.error('Erro ao excluir transação:', error)
+      toast.error('Erro ao excluir transação')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -250,31 +282,46 @@ export default function FinancialPage() {
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Categoria</th>
                   <th className="text-left p-3 text-sm font-medium text-gray-600">Descrição</th>
                   <th className="text-right p-3 text-sm font-medium text-gray-600">Valor</th>
+                  <th className="text-center p-3 text-sm font-medium text-gray-600">Ações</th>
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id} className="border-b hover:bg-gray-50">
-                    <td className="p-3 text-sm">{formatDate(transaction.date)}</td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        transaction.type === 'ENTRADA'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-red-100 text-red-800'
+                {transactions.map((transaction) => {
+                  const isManualTransaction = !transaction.id.startsWith('sale-')
+                  return (
+                    <tr key={transaction.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 text-sm">{formatDate(transaction.date)}</td>
+                      <td className="p-3">
+                        <span className={`px-2 py-1 rounded text-xs font-medium ${
+                          transaction.type === 'ENTRADA'
+                            ? 'bg-green-100 text-green-800'
+                            : 'bg-red-100 text-red-800'
+                        }`}>
+                          {transaction.type}
+                        </span>
+                      </td>
+                      <td className="p-3 text-sm">{transaction.category}</td>
+                      <td className="p-3 text-sm">{transaction.description}</td>
+                      <td className={`p-3 text-sm text-right font-medium ${
+                        transaction.type === 'ENTRADA' ? 'text-green-600' : 'text-red-600'
                       }`}>
-                        {transaction.type}
-                      </span>
-                    </td>
-                    <td className="p-3 text-sm">{transaction.category}</td>
-                    <td className="p-3 text-sm">{transaction.description}</td>
-                    <td className={`p-3 text-sm text-right font-medium ${
-                      transaction.type === 'ENTRADA' ? 'text-green-600' : 'text-red-600'
-                    }`}>
-                      {transaction.type === 'ENTRADA' ? '+' : '-'}
-                      {formatCurrency(parseFloat(transaction.amount.toString()))}
-                    </td>
-                  </tr>
-                ))}
+                        {transaction.type === 'ENTRADA' ? '+' : '-'}
+                        {formatCurrency(parseFloat(transaction.amount.toString()))}
+                      </td>
+                      <td className="p-3 text-center">
+                        {isManualTransaction && (
+                          <button
+                            onClick={() => setDeleteModal({ open: true, transactionId: transaction.id })}
+                            className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded"
+                            title="Excluir transação"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -287,6 +334,17 @@ export default function FinancialPage() {
           onSuccess={loadTransactions}
         />
       )}
+
+      <ConfirmModal
+        open={deleteModal.open}
+        onClose={() => setDeleteModal({ open: false, transactionId: null })}
+        onConfirm={handleDeleteTransaction}
+        title="Excluir Transação"
+        message="Tem certeza que deseja excluir esta transação? Esta ação não pode ser desfeita e o valor será ajustado automaticamente."
+        confirmLabel="Excluir"
+        variant="danger"
+        loading={deleting}
+      />
     </div>
   )
 }

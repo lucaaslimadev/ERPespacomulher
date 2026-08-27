@@ -30,7 +30,8 @@ async function searchProducts(req: NextRequest) {
         { name: { startsWith: query, mode: 'insensitive' } },
         { name: { contains: query, mode: 'insensitive' } },
         { barcode: { equals: query, mode: 'insensitive' } },
-        { sku: { equals: query, mode: 'insensitive' } }
+        { sku: { equals: query, mode: 'insensitive' } },
+        { variations: { some: { barcode: { equals: query, mode: 'insensitive' } } } }
       )
       
       // Busca por palavras individuais (para aceitar abreviações)
@@ -50,6 +51,7 @@ async function searchProducts(req: NextRequest) {
         { name: { contains: query, mode: 'insensitive' } },
         { barcode: { contains: query, mode: 'insensitive' } },
         { sku: { contains: query, mode: 'insensitive' } },
+        { variations: { some: { barcode: { contains: query, mode: 'insensitive' } } } }
       ]
     }
 

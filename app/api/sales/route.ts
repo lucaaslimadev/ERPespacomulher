@@ -39,7 +39,8 @@ const saleSchema = z.object({
     path: ['mixedPayments'],
   })
 
-const MAX_SALES_LIST = 2000
+const DEFAULT_SALES_LIMIT = 200
+const MAX_SALES_LIMIT = 500
 
 async function getSales(req: NextRequest) {
   try {
@@ -49,6 +50,12 @@ async function getSales(req: NextRequest) {
     const userId = searchParams.get('userId')
     const cancelled = searchParams.get('cancelled')
     const search = searchParams.get('search')
+    const pageParam = Number(searchParams.get('page') || '1')
+    const limitParam = Number(searchParams.get('limit') || DEFAULT_SALES_LIMIT)
+    const page = Number.isFinite(pageParam) && pageParam > 0 ? Math.floor(pageParam) : 1
+    const limit = Number.isFinite(limitParam) && limitParam > 0
+      ? Math.min(Math.floor(limitParam), MAX_SALES_LIMIT)
+      : DEFAULT_SALES_LIMIT
 
     const where: any = {}
 
@@ -79,9 +86,19 @@ async function getSales(req: NextRequest) {
       where.cancelled = cancelled === 'true'
     }
 
+    if (search && search.trim()) {
+      const searchTerm = search.trim()
+      where.OR = [
+        { customer: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { user: { name: { contains: searchTerm, mode: 'insensitive' } } },
+        { id: { contains: searchTerm, mode: 'insensitive' } },
+      ]
+    }
+
     const sales = await prisma.sale.findMany({
       where,
-      take: MAX_SALES_LIST,
+      skip: (page - 1) * limit,
+      take: limit,
       include: {
         customer: true,
         user: {
@@ -107,20 +124,17 @@ async function getSales(req: NextRequest) {
       orderBy: { createdAt: 'desc' },
     })
 
-    let filteredSales = sales
-    if (search && search.trim()) {
-      const searchLower = search.toLowerCase().trim()
-      filteredSales = sales.filter(sale => {
-        const customerName = sale.customer?.name?.toLowerCase() || ''
-        const userName = sale.user?.name?.toLowerCase() || ''
-        const saleId = sale.id.toLowerCase()
-        return customerName.includes(searchLower) ||
-          userName.includes(searchLower) ||
-          saleId.includes(searchLower)
-      })
-    }
+    const total = await prisma.sale.count({ where })
 
-    return NextResponse.json({ sales: filteredSales })
+    return NextResponse.json({
+      sales,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
+    })
   } catch (error) {
     if (process.env.NODE_ENV === 'development') {
       console.error('Erro ao buscar vendas:', error)
@@ -162,6 +176,13 @@ async function createSale(req: AuthenticatedRequest) {
       }
     }
 
+    const productIds = Array.from(new Set(data.items.map((item) => item.productId)))
+    const products = await prisma.product.findMany({
+      where: { id: { in: productIds } },
+      select: { id: true, cost: true },
+    })
+    const costMap = new Map(products.map((p) => [p.id, Number(p.cost)]))
+
     const installmentsData: { installmentNumber: number; amount: string; dueDate: Date }[] = []
     if (data.paymentMethod === 'CREDITO_PARCELADO' && data.installments && data.installments >= 2) {
       const installmentAmount = data.total / data.installments
@@ -192,6 +213,8 @@ async function createSale(req: AuthenticatedRequest) {
               variationId: item.variationId,
               quantity: item.quantity,
               unitPrice: item.unitPrice.toString(),
+              unitCost: (costMap.get(item.productId) || 0).toFixed(2),
+              totalCost: ((costMap.get(item.productId) || 0) * item.quantity).toFixed(2),
               totalPrice: (item.unitPrice * item.quantity).toString(),
             })),
           },
@@ -244,7 +267,20 @@ async function createSale(req: AuthenticatedRequest) {
 
       if (data.paymentMethod === 'MISTO' && data.mixedPayments && data.mixedPayments.length > 0) {
         for (const payment of data.mixedPayments) {
-          if (payment.method === 'CREDITO_PARCELADO' && payment.installments && payment.installments > 1) {
+          if (payment.method === 'CREDIARIO') {
+            const dueDate = new Date()
+            dueDate.setDate(dueDate.getDate() + 30)
+            await tx.accountsReceivable.create({
+              data: {
+                saleId: sale.id,
+                description: `Venda #${sale.id.substring(0, 8)} - ${payment.method}`,
+                customerId: data.customerId || null,
+                amount: payment.amount.toString(),
+                dueDate,
+                category: 'Crediário',
+              },
+            })
+          } else if (payment.method === 'CREDITO_PARCELADO' && payment.installments && payment.installments >= 2) {
             const installmentAmount = payment.amount / payment.installments
             const today = new Date()
             for (let i = 1; i <= payment.installments; i++) {
@@ -253,11 +289,11 @@ async function createSale(req: AuthenticatedRequest) {
               await tx.accountsReceivable.create({
                 data: {
                   saleId: sale.id,
-                  description: `Venda #${sale.id.substring(0, 8)} - ${payment.method} - Parcela ${i}/${payment.installments}`,
+                  description: `Venda #${sale.id.substring(0, 8)} - Crédito parcelado (${i}/${payment.installments})`,
                   customerId: data.customerId || null,
                   amount: installmentAmount.toString(),
                   dueDate,
-                  category: 'Venda Parcelada',
+                  category: 'Crédito Parcelado',
                 },
               })
             }
@@ -273,20 +309,29 @@ async function createSale(req: AuthenticatedRequest) {
             })
           }
         }
-      } else if (data.paymentMethod === 'CREDITO_PARCELADO' && data.installments && data.installments > 1) {
-        const installmentAmount = data.total / data.installments
-        const today = new Date()
-        for (let i = 1; i <= data.installments; i++) {
-          const dueDate = new Date(today)
-          dueDate.setMonth(dueDate.getMonth() + i)
+      } else if (data.paymentMethod === 'CREDIARIO') {
+        const dueDate = new Date()
+        dueDate.setDate(dueDate.getDate() + 30)
+        await tx.accountsReceivable.create({
+          data: {
+            saleId: sale.id,
+            description: `Venda #${sale.id.substring(0, 8)} - Crediário`,
+            customerId: data.customerId || null,
+            amount: data.total.toString(),
+            dueDate,
+            category: 'Crediário',
+          },
+        })
+      } else if (data.paymentMethod === 'CREDITO_PARCELADO' && installmentsData.length > 0) {
+        for (const installment of installmentsData) {
           await tx.accountsReceivable.create({
             data: {
               saleId: sale.id,
-              description: `Venda #${sale.id.substring(0, 8)} - Parcela ${i}/${data.installments}`,
+              description: `Venda #${sale.id.substring(0, 8)} - Crédito parcelado (${installment.installmentNumber}/${installmentsData.length})`,
               customerId: data.customerId || null,
-              amount: installmentAmount.toString(),
-              dueDate,
-              category: 'Venda Parcelada',
+              amount: installment.amount,
+              dueDate: installment.dueDate,
+              category: 'Crédito Parcelado',
             },
           })
         }

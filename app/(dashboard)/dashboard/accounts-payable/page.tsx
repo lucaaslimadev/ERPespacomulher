@@ -23,15 +23,17 @@ export default function AccountsPayablePage() {
   const [deleting, setDeleting] = useState(false)
 
   useEffect(() => {
+    // Não definir filtro de data padrão - mostrar todas as contas
+    // O usuário pode filtrar manualmente se quiser
     const today = new Date()
     const nextMonth = new Date(today)
-    nextMonth.setMonth(nextMonth.getMonth() + 1)
-    setStartDate(today.toISOString().split('T')[0])
+    nextMonth.setMonth(nextMonth.getMonth() + 3)
+    setStartDate('')
     setEndDate(nextMonth.toISOString().split('T')[0])
   }, [])
 
   useEffect(() => {
-    if (startDate && endDate) {
+    if (endDate) {
       loadAccounts()
     }
   }, [startDate, endDate, filterPaid])

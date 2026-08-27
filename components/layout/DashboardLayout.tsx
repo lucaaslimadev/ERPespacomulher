@@ -13,7 +13,10 @@ interface DashboardLayoutProps {
 
 export default async function DashboardLayout({ children }: DashboardLayoutProps) {
   const cookieStore = await cookies()
-  const token = cookieStore.get(AUTH.TOKEN_COOKIE)?.value || cookieStore.get(AUTH.BEARER_COOKIE)?.value
+  const allowLegacyTokenFallback =
+    process.env.NODE_ENV !== 'production' && process.env.ALLOW_LEGACY_TOKEN_FALLBACK === '1'
+  const token = cookieStore.get(AUTH.TOKEN_COOKIE)?.value ||
+    (allowLegacyTokenFallback ? cookieStore.get(AUTH.BEARER_COOKIE)?.value : undefined)
 
   if (!token) {
     redirect('/login')

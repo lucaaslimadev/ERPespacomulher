@@ -4,7 +4,6 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { setAuthToken } from '@/lib/api'
 
 export default function LoginPage() {
   const router = useRouter()
@@ -63,7 +62,6 @@ export default function LoginPage() {
         return
       }
 
-      if (data.token) setAuthToken(data.token)
       window.location.replace('/dashboard')
     } catch (err) {
       console.error('❌ Erro no login:', err)

@@ -100,7 +100,6 @@ export async function POST(req: NextRequest) {
         name: user.name,
         role: user.role,
       },
-      token, // Fallback para Docker: frontend envia no header Authorization quando cookie falha
     })
 
     const isHttps = req.headers.get('x-forwarded-proto') === 'https'

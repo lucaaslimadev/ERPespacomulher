@@ -6,17 +6,20 @@ import { prisma } from '@/lib/db'
  * Útil para verificar se a API está acessível (Docker, load balancer).
  */
 export async function GET() {
+  const startedAt = Date.now()
   try {
     await prisma.$queryRaw`SELECT 1`
     return NextResponse.json({
       ok: true,
-      env: process.env.NODE_ENV,
+      service: 'erp-espaco-mulher',
       timestamp: new Date().toISOString(),
+      dbLatencyMs: Date.now() - startedAt,
     })
-  } catch (error) {
-    console.error('Health check DB failed:', error)
+  } catch (error: unknown) {
+    const requestId = crypto.randomUUID()
+    console.error(`[Health][${requestId}] Database unreachable`, error)
     return NextResponse.json(
-      { ok: false, error: 'Database unreachable' },
+      { ok: false, error: 'Database unreachable', requestId },
       { status: 503 }
     )
   }

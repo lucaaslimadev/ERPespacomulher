@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { withAuth, AuthenticatedRequest } from '@/lib/middleware'
+import { UserRole } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { z } from 'zod'
 import { FinancialType } from '@prisma/client'
@@ -36,23 +37,6 @@ async function getTransactions(req: NextRequest) {
     }
     if (dateEnd) dateEnd.setHours(23, 59, 59, 999)
 
-    type SaleRow = { id: string; total: { toString(): string }; createdAt: Date; paymentMethod: string }
-    let salesInRange: SaleRow[] = []
-    let totalEntradasVendas = 0
-
-    if (dateStart && dateEnd) {
-      const sales = await prisma.sale.findMany({
-        where: {
-          cancelled: false,
-          createdAt: { gte: dateStart, lte: dateEnd },
-        },
-        select: { id: true, total: true, createdAt: true, paymentMethod: true },
-      })
-      const vendasEntrada = sales.filter(s => s.paymentMethod !== 'CREDITO_PARCELADO')
-      totalEntradasVendas = vendasEntrada.reduce((sum, s) => sum + parseFloat(s.total.toString()), 0)
-      salesInRange = vendasEntrada as SaleRow[]
-    }
-
     const whereEntradas: { type: 'ENTRADA'; date?: { gte?: Date; lte?: Date } } = { type: FinancialType.ENTRADA }
     if (dateStart || dateEnd) {
       whereEntradas.date = {}
@@ -79,18 +63,6 @@ async function getTransactions(req: NextRequest) {
     })
     const totalSaidas = saidasTransactions.reduce((sum, t) => sum + parseFloat(t.amount.toString()), 0)
 
-    const totalEntradas = totalEntradasVendas + totalEntradasManuais
-
-    const entradasVendasAsList = salesInRange.map(sale => ({
-      id: `sale-${sale.id}`,
-      type: FinancialType.ENTRADA,
-      category: 'Venda',
-      description: `Venda #${sale.id.substring(0, 8)}`,
-      amount: sale.total.toString(),
-      date: sale.createdAt,
-      createdAt: sale.createdAt,
-      updatedAt: sale.createdAt,
-    }))
     const entradasManuaisAsList = entradasManuais.map(t => ({
       id: t.id,
       type: FinancialType.ENTRADA,
@@ -106,7 +78,7 @@ async function getTransactions(req: NextRequest) {
       amount: t.amount.toString(),
     }))
 
-    let transactions = [...entradasVendasAsList, ...entradasManuaisAsList, ...saidasAsList].sort(
+    let transactions = [...entradasManuaisAsList, ...saidasAsList].sort(
       (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()
     )
 
@@ -118,9 +90,9 @@ async function getTransactions(req: NextRequest) {
     return NextResponse.json({
       transactions,
       summary: {
-        totalEntradas,
+        totalEntradas: totalEntradasManuais,
         totalSaidas,
-        resultado: totalEntradas - totalSaidas,
+        resultado: totalEntradasManuais - totalSaidas,
       },
     })
   } catch (error) {
@@ -172,5 +144,5 @@ async function createTransaction(req: AuthenticatedRequest) {
   }
 }
 
-export const GET = withAuth(getTransactions)
-export const POST = withAuth(createTransaction)
+export const GET = withAuth(getTransactions, UserRole.GERENTE)
+export const POST = withAuth(createTransaction, UserRole.GERENTE)

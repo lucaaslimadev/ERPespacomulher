@@ -22,6 +22,8 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 
+const DASHBOARD_POLL_INTERVAL_MS = 120000
+
 export default function DashboardPage() {
   const [stats, setStats] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -32,28 +34,26 @@ export default function DashboardPage() {
   const [loadingNotifications, setLoadingNotifications] = useState(false)
 
   useEffect(() => {
-    loadStats()
-    loadDueAlerts()
-    loadNotifications()
-    const interval = setInterval(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return
       loadStats()
       loadDueAlerts()
       loadNotifications()
-    }, 60000) // Atualizar a cada minuto
+    }
+
+    refresh()
+    const interval = setInterval(() => {
+      refresh()
+    }, DASHBOARD_POLL_INTERVAL_MS)
     return () => clearInterval(interval)
   }, [])
 
   const loadDueAlerts = async () => {
     try {
-      const response = await apiFetch('/api/notifications/check')
-      if (response.ok) {
-        const data = await response.json()
-        // Buscar notificações não lidas
-        const notificationsRes = await apiFetch('/api/notifications?read=false')
-        if (notificationsRes.ok) {
-          const notificationsData = await notificationsRes.json()
-          setDueAlerts(notificationsData.notifications || [])
-        }
+      const notificationsRes = await apiFetch('/api/notifications?read=false')
+      if (notificationsRes.ok) {
+        const notificationsData = await notificationsRes.json()
+        setDueAlerts((notificationsData.notifications || []).slice(0, 10))
       }
     } catch (error) {
       console.error('Erro ao carregar alertas:', error)
@@ -68,8 +68,12 @@ export default function DashboardPage() {
       const in7Days = new Date(today)
       in7Days.setDate(in7Days.getDate() + 7)
 
-      // Contas a Pagar
-      const payableResponse = await apiFetch('/api/accounts-payable')
+      const [payableResponse, receivableResponse, expensesResponse] = await Promise.all([
+        apiFetch('/api/accounts-payable'),
+        apiFetch('/api/accounts-receivable'),
+        apiFetch('/api/fixed-expenses'),
+      ])
+
       const payableData = payableResponse.ok ? await payableResponse.json() : { accounts: [] }
       const payable = (payableData.accounts || []).filter((acc: any) => 
         !acc.paid && new Date(acc.dueDate) <= in7Days
@@ -78,8 +82,6 @@ export default function DashboardPage() {
       )
       setAccountsPayable(payable.slice(0, 5))
 
-      // Contas a Receber
-      const receivableResponse = await (await import('@/lib/api')).apiFetch('/api/accounts-receivable')
       const receivableData = receivableResponse.ok ? await receivableResponse.json() : { accounts: [] }
       const receivable = (receivableData.accounts || []).filter((acc: any) => 
         !acc.received && new Date(acc.dueDate) <= in7Days
@@ -88,8 +90,6 @@ export default function DashboardPage() {
       )
       setAccountsReceivable(receivable.slice(0, 5))
 
-      // Despesas Fixas
-      const expensesResponse = await apiFetch('/api/fixed-expenses')
       const expensesData = expensesResponse.ok ? await expensesResponse.json() : { expenses: [] }
       const todayDay = today.getDate()
       const expenses = (expensesData.expenses || []).filter((exp: any) => 
@@ -122,7 +122,6 @@ export default function DashboardPage() {
       }
       
       const data = await response.json()
-      console.log('Estatísticas carregadas:', data)
       // Garantir que charts não existe (removido)
       if (data.charts) {
         delete data.charts

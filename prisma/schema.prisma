@@ -27,6 +27,8 @@ model User {
   stockLogs     StockLog[]
   discountLogs  DiscountLog[]
   cancellationLogs CancellationLog[]
+  returns       Return[]
+  consignments  Consignment[]
 
   @@map("users")
 }
@@ -69,6 +71,9 @@ model Product {
   variations ProductVariation[]
   salesItems SaleItem[]
   stockLogs   StockLog[]
+  returnItems ReturnItem[]
+  exchangeItems ExchangeItem[]
+  consignmentItems ConsignmentItem[]
 
   @@map("products")
 }
@@ -79,6 +84,7 @@ model ProductVariation {
   productId String
   color     String
   size      String
+  barcode   String?  @unique
   quantity  Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -86,6 +92,9 @@ model ProductVariation {
   product   Product   @relation(fields: [productId], references: [id], onDelete: Cascade)
   stockLogs StockLog[]
   saleItems SaleItem[]
+  returnItems ReturnItem[]
+  exchangeItems ExchangeItem[]
+  consignmentItems ConsignmentItem[]
 
   @@unique([productId, color, size])
   @@map("product_variations")
@@ -101,8 +110,9 @@ model Customer {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  sales                Sale[]
-  accountsReceivable   AccountsReceivable[]
+  sales        Sale[]
+  accountsReceivable AccountsReceivable[]
+  consignments Consignment[]
 
   @@map("customers")
 }
@@ -130,7 +140,9 @@ model Sale {
   discountLogs       DiscountLog[]
   cancellationLogs   CancellationLog[]
   accountsReceivable AccountsReceivable[]
+  returns            Return[]
 
+  @@index([createdAt, cancelled])
   @@map("sales")
 }
 
@@ -142,6 +154,7 @@ enum PaymentMethod {
   CREDITO_PARCELADO
   DEBITO
   MISTO
+  CREDIARIO
 }
 
 // Itens da venda
@@ -152,6 +165,8 @@ model SaleItem {
   variationId       String
   quantity          Int
   unitPrice         Decimal  @db.Decimal(10, 2)
+  unitCost          Decimal? @db.Decimal(10, 2)
+  totalCost         Decimal? @db.Decimal(10, 2)
   totalPrice        Decimal  @db.Decimal(10, 2)
   createdAt         DateTime @default(now())
 
@@ -159,6 +174,8 @@ model SaleItem {
   product    Product          @relation(fields: [productId], references: [id])
   variation  ProductVariation @relation(fields: [variationId], references: [id])
 
+  @@index([saleId])
+  @@index([variationId])
   @@map("sale_items")
 }
 
@@ -177,6 +194,8 @@ model StockLog {
   variation ProductVariation @relation(fields: [variationId], references: [id])
   user      User             @relation(fields: [userId], references: [id])
 
+  @@index([variationId, createdAt])
+  @@index([productId, createdAt])
   @@map("stock_logs")
 }
 
@@ -239,6 +258,9 @@ model FinancialTransaction {
   accountPayable    AccountsPayable?    @relation(fields: [accountPayableId], references: [id])
   accountReceivable AccountsReceivable? @relation(fields: [accountReceivableId], references: [id])
 
+  @@index([date, type])
+  @@index([accountPayableId])
+  @@index([accountReceivableId])
   @@map("financial_transactions")
 }
 
@@ -314,6 +336,8 @@ model AccountsPayable {
 
   paymentTransactions FinancialTransaction[]
 
+  @@index([dueDate, paid])
+  @@index([supplierId])
   @@map("accounts_payable")
 }
 
@@ -338,6 +362,9 @@ model AccountsReceivable {
 
   paymentTransactions FinancialTransaction[]
 
+  @@index([dueDate, received])
+  @@index([customerId])
+  @@index([saleId])
   @@map("accounts_receivable")
 }
 
@@ -387,6 +414,8 @@ model Notification {
   relatedId   String?  // ID relacionado (conta a pagar, receber, etc)
   createdAt   DateTime @default(now())
 
+  @@index([read, createdAt])
+  @@index([type, createdAt])
   @@map("notifications")
 }
 
@@ -399,4 +428,121 @@ enum NotificationType {
   FIXED_EXPENSE_DUE_SOON
   LOW_STOCK
   SALE_CANCELLED
+}
+
+// Trocas e Devoluções
+model Return {
+  id              String       @id @default(cuid())
+  saleId          String
+  userId          String
+  type            ReturnType   // DEVOLUCAO ou TROCA
+  reason          String?      @db.Text
+  refundAmount    Decimal      @db.Decimal(10, 2) // Valor a ser devolvido
+  status          ReturnStatus @default(PENDING)
+  processedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  sale            Sale         @relation(fields: [saleId], references: [id])
+  user            User         @relation(fields: [userId], references: [id])
+  items           ReturnItem[]
+  exchangeItems   ExchangeItem[] // Novos produtos na troca
+
+  @@index([saleId])
+  @@index([status, createdAt])
+  @@map("returns")
+}
+
+enum ReturnType {
+  DEVOLUCAO  // Devolução com reembolso
+  TROCA      // Troca por outros produtos
+}
+
+enum ReturnStatus {
+  PENDING    // Aguardando processamento
+  APPROVED   // Aprovada
+  REJECTED   // Rejeitada
+  COMPLETED  // Concluída
+}
+
+// Itens devolvidos
+model ReturnItem {
+  id          String   @id @default(cuid())
+  returnId    String
+  saleItemId  String   // Referência ao item original da venda
+  productId   String
+  variationId String
+  quantity    Int      // Quantidade devolvida
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  totalPrice  Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  return      Return           @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product     Product          @relation(fields: [productId], references: [id])
+  variation   ProductVariation @relation(fields: [variationId], references: [id])
+
+  @@map("return_items")
+}
+
+// Novos itens na troca
+model ExchangeItem {
+  id          String   @id @default(cuid())
+  returnId    String
+  productId   String
+  variationId String
+  quantity    Int
+  unitPrice   Decimal  @db.Decimal(10, 2)
+  totalPrice  Decimal  @db.Decimal(10, 2)
+  createdAt   DateTime @default(now())
+
+  return      Return           @relation(fields: [returnId], references: [id], onDelete: Cascade)
+  product     Product          @relation(fields: [productId], references: [id])
+  variation   ProductVariation @relation(fields: [variationId], references: [id])
+
+  @@map("exchange_items")
+}
+
+// Consignados
+model Consignment {
+  id          String            @id @default(cuid())
+  customerId  String
+  userId      String
+  sentDate    DateTime          @default(now())
+  returnDate  DateTime?
+  status      ConsignmentStatus @default(SENT)
+  notes       String?           @db.Text
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  customer Customer           @relation(fields: [customerId], references: [id])
+  user     User               @relation(fields: [userId], references: [id])
+  items    ConsignmentItem[]
+
+  @@index([status, createdAt])
+  @@index([customerId])
+  @@map("consignments")
+}
+
+enum ConsignmentStatus {
+  SENT           // Enviado
+  PARTIAL_RETURN // Retorno parcial
+  COMPLETED      // Finalizado (venda gerada)
+  CANCELLED      // Cancelado
+}
+
+model ConsignmentItem {
+  id            String   @id @default(cuid())
+  consignmentId String
+  productId     String
+  variationId   String
+  quantity      Int      // Quantidade enviada
+  unitPrice     Decimal  @db.Decimal(10, 2)
+  returned      Int      @default(0) // Quantidade devolvida
+  createdAt     DateTime @default(now())
+
+  consignment Consignment      @relation(fields: [consignmentId], references: [id], onDelete: Cascade)
+  product     Product          @relation(fields: [productId], references: [id])
+  variation   ProductVariation @relation(fields: [variationId], references: [id])
+
+  @@map("consignment_items")
 }
